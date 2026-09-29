@@ -63,9 +63,8 @@ class KuryeMerkezi {
   static bool mesaiAktif = false;
   static int gecenSaniye = 0;
   
-  // Harita üzerinden seçilen veya tıklanan aktif rota hedefi
   static LatLng? aktifHedefKonum;
-  static String aktifHedefIsim = 'Seçilen Konum';
+  static String aktifHedefIsim = '';
 
   static int get toplamPaketSayisi => paketler.length;
   static int get teslimEdilenSayisi => paketler.where((p) => p.teslimEdildi).length;
@@ -140,16 +139,20 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
   String secilenOdeme = 'Nakit';
   String bahsisOdemeTuru = 'Nakit';
 
-  LatLng adresSec(String adres) {
-    String metin = adres.toLowerCase();
-    if (metin.contains('ismetpaşa') || metin.contains('ismet pasa')) {
+  LatLng adresKoordinatBul(String adres) {
+    String m = adres.toLowerCase();
+    if (m.contains('ismetpaşa') || m.contains('ismet pasa') || m.contains('merkez')) {
       return const LatLng(38.6750, 29.4070);
-    } else if (metin.contains('atatürk') || metin.contains('ataturk')) {
+    } else if (m.contains('atatürk') || m.contains('ataturk')) {
       return const LatLng(38.6800, 29.3950);
-    } else if (metin.contains('fatih')) {
+    } else if (m.contains('fatih')) {
       return const LatLng(38.6650, 29.4150);
-    } else if (metin.contains('cumhuriyet')) {
+    } else if (m.contains('cumhuriyet')) {
       return const LatLng(38.6700, 29.3900);
+    } else if (m.contains('dikilitaş') || m.contains('dikilitas')) {
+      return const LatLng(38.6780, 29.3880);
+    } else if (m.contains('aybey')) {
+      return const LatLng(38.6850, 29.4020);
     } else {
       int sayi = KuryeMerkezi.paketler.length;
       return LatLng(38.6742 + (sayi * 0.002), 29.4059 + (sayi * 0.002));
@@ -186,7 +189,7 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
               if (semtController.text.isNotEmpty) {
                 setState(() {
                   int sira = KuryeMerkezi.paketler.length + 1;
-                  LatLng bulunanKonum = adresSec(semtController.text);
+                  LatLng bulunanKonum = adresKoordinatBul(semtController.text);
                   KuryeMerkezi.paketler.add(PaketModel(
                     paketNo: 'Paket #$sira',
                     semt: semtController.text,
@@ -489,6 +492,7 @@ class HaritaEkrani extends StatefulWidget {
 class _HaritaEkraniState extends State<HaritaEkrani> {
   LatLng merkezKonum = const LatLng(38.6742, 29.4059);
   final MapController _mapController = MapController();
+  final TextEditingController haritaAramaController = TextEditingController();
 
   Future<void> anlikKonumaGit() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -507,6 +511,36 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
     setState(() {
       merkezKonum = yeniKonum;
     });
+  }
+
+  void adresteAraVeGit(String arananAdres) {
+    String m = arananAdres.toLowerCase();
+    LatLng hedef;
+    if (m.contains('ismetpaşa') || m.contains('ismet pasa')) {
+      hedef = const LatLng(38.6750, 29.4070);
+    } else if (m.contains('atatürk') || m.contains('ataturk')) {
+      hedef = const LatLng(38.6800, 29.3950);
+    } else if (m.contains('fatih')) {
+      hedef = const LatLng(38.6650, 29.4150);
+    } else if (m.contains('cumhuriyet')) {
+      hedef = const LatLng(38.6700, 29.3900);
+    } else if (m.contains('dikilitaş') || m.contains('dikilitas')) {
+      hedef = const LatLng(38.6780, 29.3880);
+    } else if (m.contains('aybey')) {
+      hedef = const LatLng(38.6850, 29.4020);
+    } else {
+      hedef = LatLng(merkezKonum.latitude + 0.005, merkezKonum.longitude + 0.005);
+    }
+
+    setState(() {
+      KuryeMerkezi.aktifHedefKonum = hedef;
+      KuryeMerkezi.aktifHedefIsim = arananAdres;
+    });
+
+    _mapController.move(hedef, 15.0);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('"$aranesAdresi" adresi bulundu, rota çizildi!')),
+    );
   }
 
   List<LatLng> rotaNoktalariUret(LatLng baslangis, LatLng bitis) {
@@ -532,14 +566,15 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
           onTap: () {
             setState(() {
               KuryeMerkezi.aktifHedefKonum = p.konum;
-              KuryeMerkezi.aktifHedefIsim = '${p.paketNo} (${p.semt})';
+              KuryeMerkezi.aktifHedefIsim = '${p.paketNo} - ${p.semt}';
             });
+            _mapController.move(p.konum, 15.0);
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Rota Seçildi: ${p.semt}. Haritada çizgi oluşturuldu!')),
+              SnackBar(content: Text('Rota Seçildi: ${p.semt}')),
             );
           },
           child: Tooltip(
-            message: '${p.paketNo} - ${p.semt} (Gitmek için dokun)',
+            message: '${p.paketNo} - ${p.semt}',
             child: Icon(
               Icons.location_pin,
               color: p.teslimEdildi ? Colors.green : Colors.red,
@@ -550,7 +585,6 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
       );
     }).toList();
 
-    // Eğer harita üzerinde boş bir yere dokunulup hedef seçildiyse oraya mavi pin koyalım
     if (KuryeMerkezi.aktifHedefKonum != null) {
       bool paketteVarMi = KuryeMerkezi.paketler.any((p) => p.konum == KuryeMerkezi.aktifHedefKonum);
       if (!paketteVarMi) {
@@ -586,45 +620,75 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(KuryeMerkezi.aktifHedefIsim == 'Seçilen Konum' ? 'Haritaya Dokunarak Rota Çiz' : 'Hedef: ${KuryeMerkezi.aktifHedefIsim}'),
-        actions: [
-          if (KuryeMerkezi.aktifHedefKonum != null)
-            IconButton(
-              icon: const Icon(Icons.clear, color: Colors.red),
-              tooltip: 'Rotayı İptal Et',
-              onPressed: () {
-                setState(() {
-                  KuryeMerkezi.aktifHedefKonum = null;
-                  KuryeMerkezi.aktifHedefIsim = 'Seçilen Konum';
-                });
-              },
-            ),
-        ],
-      ),
-      body: FlutterMap(
-        mapController: _mapController,
-        options: MapOptions(
-          initialCenter: merkezKonum,
-          initialZoom: 14.0,
-          // Harita üzerinde herhangi bir yere dokunduğumuzda o konumu rota hedefi seçiyoruz!
-          onTap: (tapPosition, point) {
-            setState(() {
-              KuryeMerkezi.aktifHedefKonum = point;
-              KuryeMerkezi.aktifHedefIsim = 'Özel Konum (${point.latitude.toStringAsFixed(3)}, ${point.longitude.toStringAsFixed(3)})';
-            });
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Haritada bir noktaya dokundun! Rota çizildi.')),
-            );
-          },
-        ),
+      body: Stack(
         children: [
-          TileLayer(
-            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-            userAgentPackageName: 'com.oguz.kurye',
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: merkezKonum,
+              initialZoom: 14.0,
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.oguz.kurye',
+              ),
+              PolylineLayer(polylines: rotalar),
+              MarkerLayer(markers: paketPinleri),
+            ],
           ),
-          PolylineLayer(polylines: rotalar),
-          MarkerLayer(markers: paketPinleri),
+          // Google Maps tarzı üst arama çubuğu
+          Positioned(
+            top: 45,
+            left: 16,
+            right: 16,
+            child: Card(
+              elevation: 6,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.search, color: Colors.deepOrange),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: haritaAramaController,
+                        decoration: const InputDecoration(
+                          hintText: 'Adres veya semt ara (örn: Atatürk Mah.)...',
+                          border: InputBorder.none,
+                        ),
+                        onSubmitted: (value) {
+                          if (value.isNotEmpty) {
+                            adresteAraVeGit(value);
+                          }
+                        },
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.send, color: Colors.deepOrange),
+                      onPressed: () {
+                        if (haritaAramaController.text.isNotEmpty) {
+                          adresteAraVeGit(haritaAramaController.text);
+                        }
+                      },
+                    ),
+                    if (KuryeMerkezi.aktifHedefKonum != null)
+                      IconButton(
+                        icon: const Icon(Icons.clear, color: Colors.red),
+                        onPressed: () {
+                          setState(() {
+                            KuryeMerkezi.aktifHedefKonum = null;
+                            KuryeMerkezi.aktifHedefIsim = '';
+                            haritaAramaController.clear();
+                          });
+                        },
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ],
       ),
       floatingActionButton: FloatingActionButton(
@@ -692,7 +756,7 @@ class _NotlarEkraniState extends State<NotlarEkrani> {
                             leading: const Icon(Icons.note, color: Colors.deepOrange),
                             title: Text(KuryeMerkezi.gunlukNotlar[index]),
                             trailing: IconButton(
-                              icon: screenDeleteIcon(),
+                              icon: const Icon(Icons.delete, color: Colors.grey),
                               onPressed: () {
                                 setState(() {
                                   KuryeMerkezi.gunlukNotlar.removeAt(index);
@@ -709,6 +773,4 @@ class _NotlarEkraniState extends State<NotlarEkrani> {
       ),
     );
   }
-
-  Icon screenDeleteIcon() => const Icon(Icons.delete, color: Colors.grey);
 }
