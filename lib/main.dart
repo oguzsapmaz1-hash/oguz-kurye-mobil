@@ -93,7 +93,7 @@ class _KazancEkraniState extends State<KazancEkrani> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Oğuz Kurye - Paket & Kazanç Takibi')),
+      appBar: AppBar(title: const Text('Oğuz Kurye - Paket & Kazanç')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -108,11 +108,11 @@ class _KazancEkraniState extends State<KazancEkrani> {
             const SizedBox(height: 12),
             Row(
               children: [
-                const Text('Ödeme Türü: ', style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(width: 10),
+                const Text('Ödeme: ', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(width: 5),
                 DropdownButton<String>(
                   value: secilenOdeme,
-                  items: ['Nakit', 'IBAN', 'POS', 'Multinet/Sodexo']
+                  items: ['Nakit', 'IBAN', 'POS', 'Multinet']
                       .map((e) => DropdownMenuItem(value: e, child: Text(e)))
                       .toList(),
                   onChanged: (val) => setState(() => secilenOdeme = val!),
@@ -129,7 +129,7 @@ class _KazancEkraniState extends State<KazancEkrani> {
             const SizedBox(height: 10),
             Expanded(
               child: paketler.isEmpty
-                  ? const Center(child: Text('Henüz paket eklenmedi. Yukarıdan paket ekleyebilirsiniz.'))
+                  ? const Center(child: Text('Henüz paket eklenmedi. Yukarıdan ekleyebilirsiniz.'))
                   : ListView.builder(
                       itemCount: paketler.length,
                       itemBuilder: (context, index) {
@@ -138,7 +138,7 @@ class _KazancEkraniState extends State<KazancEkrani> {
                           color: paket.teslimEdildi ? Colors.green.shade50 : Colors.white,
                           child: ListTile(
                             title: Text(paket.paketAdi, style: TextStyle(fontWeight: FontWeight.bold, decoration: paket.teslimEdildi ? TextDecoration.lineThrough : null)),
-                            subtitle: Text('Ödeme: ${paket.odemeTuru}'),
+                            subtitle: Text('Ödeme Türü: ${paket.odemeTuru}'),
                             trailing: ElevatedButton(
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: paket.teslimEdildi ? Colors.grey : Colors.green,
@@ -187,7 +187,6 @@ class HaritaEkrani extends StatefulWidget {
 class _HaritaEkraniState extends State<HaritaEkrani> {
   LatLng usakMerkez = const LatLng(38.6742, 29.4059);
   final MapController _mapController = MapController();
-  bool konumAlindi = false;
 
   Future<void> anlikKonumaGit() async {
     bool serviceEnabled;
@@ -207,7 +206,6 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
     
     _mapController.move(yeniKonum, 15.0);
     setState(() {
-      konumAlindi = true;
       usakMerkez = yeniKonum;
     });
   }
@@ -215,7 +213,7 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Uşak Canlı Harita & Konum')),
+      appBar: AppBar(title: const Text('Uşak Canlı Harita')),
       body: FlutterMap(
         mapController: _mapController,
         options: MapOptions(
