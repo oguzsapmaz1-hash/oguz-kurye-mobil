@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import 'dart:async';
 
 void main() {
   runApp(const OguzKuryeProApp());
@@ -14,7 +15,7 @@ class OguzKuryeProApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Oğuz Kurye Pro',
+      title: 'Oğuz Kurye Pro Max',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepOrange),
         useMaterial3: true,
@@ -28,8 +29,9 @@ class PaketModel {
   String paketNo;
   String semt;
   double tutar;
-  String odemeTuru;
+  String odemeTuru; // Nakit, IBAN, POS, Multinet
   bool teslimEdildi;
+  LatLng konum;
 
   PaketModel({
     required this.paketNo,
@@ -37,7 +39,14 @@ class PaketModel {
     required this.tutar,
     required this.odemeTuru,
     this.teslimEdildi = false,
+    required this.konum,
   });
+}
+
+class BahsisModel {
+  double miktar;
+  String tur; // Nakit, IBAN vb.
+  BahsisModel({required this.miktar, required this.tur});
 }
 
 class KuryeMerkezi {
@@ -46,16 +55,35 @@ class KuryeMerkezi {
   static double yakitGideri = 0.0;
   static double sigaraYemekGideri = 0.0;
   static double digerMasraflar = 0.0;
-  static double toplamBahsis = 0.0;
+  
+  static List<BahsisModel> bahsisler = [];
   static List<String> gunlukNotlar = [];
+
+  // Mesai Takibi
+  static bool mesaiAktif = gecenSaniye > 0;
+  static int gecenSaniye = 0;
 
   static int get toplamPaketSayisi => paketler.length;
   static int get teslimEdilenSayisi => paketler.where((p) => p.teslimEdildi).length;
 
   static double get paketlerdenKazanc => teslimEdilenSayisi * bazPaketUcreti;
+  static double get toplamBahsis => bahsisler.fold(0.0, (toplam, b) => toplam + b.miktar);
   static double get toplamCiro => paketlerdenKazanc + toplamBahsis;
   static double get toplamGider => yakitGideri + sigaraYemekGideri + digerMasraflar;
   static double get netKar => toplamCiro - toplamGider;
+
+  // Ödeme Kanallarına Göre Dağılım
+  static double get nakitToplam {
+    double pNakit = paketler.where((p) => p.teslimEdildi && p.odemeTuru == 'Nakit').length * bazPaketUcreti;
+    double bNakit = bahsisler.where((b) => b.tur == 'Nakit').fold(0.0, (t, b) => t + b.miktar);
+    return pNakit + bNakit;
+  }
+
+  static double get dijitalToplam {
+    double pDijital = paketler.where((p) => p.teslimEdildi && p.odemeTuru != 'Nakit').length * bazPaketUcreti;
+    double bDijital = bahsisler.where((b) => b.tur != 'Nakit').fold(0.0, (t, b) => t + b.miktar);
+    return pDijital + bDijital;
+  }
 }
 
 class AnaPanel extends StatefulWidget {
@@ -87,7 +115,7 @@ class _AnaPanelState extends State<AnaPanel> {
         onTap: (index) => setState(() => _seciliSekme = index),
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.local_shipping), label: 'Paketler'),
-          BottomNavigationBarItem(icon: Icon(Icons.account_balance_wallet), label: 'Kasa & Gider'),
+          BottomNavigationBarItem(icon: Icon(Icons.account_balance_wallet), label: 'Kasa & Bilanço'),
           BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Harita'),
           BottomNavigationBarItem(icon: Icon(Icons.note_alt), label: 'Notlar'),
         ],
@@ -107,6 +135,14 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
   final semtController = TextEditingController();
   final bahsisController = TextEditingController();
   String secilenOdeme = 'Nakit';
+  String bahsisOdemeTuru = 'Nakit';
+
+  LatLng rastgeleUcakKonumuUret() {
+    double baseLat = 38.6742;
+    double baseLng = 29.4059;
+    int count = KuryeMerkezi.paketler.length;
+    return LatLng(baseLat + (count * 0.003), baseLng + (count * 0.003));
+  }
 
   void paketEkleModal() {
     semtController.clear();
@@ -119,7 +155,7 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
           children: [
             TextField(
               controller: semtController,
-              decoration: const InputDecoration(labelText: 'Semt / Adres', border: OutlineInputBorder()),
+              decoration: const InputDecoration(labelText: 'Semt / Adres (örn: Atatürk Mah.)', border: OutlineInputBorder()),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
@@ -143,6 +179,7 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
                     semt: semtController.text,
                     tutar: KuryeMerkezi.bazPaketUcreti,
                     odemeTuru: secilenOdeme,
+                    konum: rastgeleUcakKonumuUret(),
                   ));
                 });
                 Navigator.pop(context);
@@ -161,21 +198,35 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Bahşiş Ekle'),
-        content: TextField(
-          controller: bahsisController,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(labelText: 'Bahşiş Miktarı (TL)', border: OutlineInputBorder()),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: bahsisController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Bahşiş Miktarı (TL)', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: bahsisOdemeTuru,
+              decoration: const InputDecoration(labelText: 'Bahşiş Kanalı', border: OutlineInputBorder()),
+              items: ['Nakit', 'IBAN', 'POS'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+              onChanged: (val) => bahsisOdemeTuru = val!,
+            ),
+          ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('İptal')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
             onPressed: () {
-              double bahsis = double.tryParse(bahsisController.text) ?? 0.0;
-              setState(() {
-                KuryeMerkezi.toplamBahsis += bahsis;
-              });
-              Navigator.pop(context);
+              double miktar = double.tryParse(bahsisController.text) ?? 0.0;
+              if (miktar > 0) {
+                setState(() {
+                  KuryeMerkezi.bahsisler.add(BahsisModel(miktar: miktar, tur: bahsisOdemeTuru));
+                });
+                Navigator.pop(context);
+              }
             },
             child: const Text('Ekle'),
           ),
@@ -188,7 +239,7 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Aktif Paketler'),
+        title: const Text('Oğuz Kurye Pro - Aktif Saha'),
         actions: [
           IconButton(
             icon: const Icon(Icons.card_giftcard),
@@ -213,7 +264,7 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
           ),
           Expanded(
             child: KuryeMerkezi.paketler.isEmpty
-                ? const Center(child: Text('Henüz paket eklenmedi.'))
+                ? const Center(child: Text('Henüz paket eklenmedi. Sağ alttan ekleyebilirsin.'))
                 : ListView.builder(
                     itemCount: KuryeMerkezi.paketler.length,
                     itemBuilder: (context, index) {
@@ -266,22 +317,87 @@ class _MuhasebeEkraniState extends State<MuhasebeEkrani> {
   final sigaraYemekController = TextEditingController(text: KuryeMerkezi.sigaraYemekGideri.toString());
   final digerController = TextEditingController(text: KuryeMerkezi.digerMasraflar.toString());
 
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    if (KuryeMerkezi.mesaiAktif && _timer == null) {
+      _mesaiyiBaslatTimer();
+    }
+  }
+
+  void _mesaiyiBaslatTimer() {
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      setState(() {
+        KuryeMerkezi.gecenSaniye++;
+      });
+    });
+  }
+
+  void mesaiyiToggle() {
+    setState(() {
+      KuryeMerkezi.mesaiAktif = !KuryeMerkezi.mesaiAktif;
+      if (KuryeMerkezi.mesaiAktif) {
+        _mesaiyiBaslatTimer();
+      } else {
+        _timer?.cancel();
+      }
+    });
+  }
+
+  String get mesaiSuresiFormatli {
+    int saat = KuryeMerkezi.gecenSaniye ~/ 3600;
+    int dakika = (KuryeMerkezi.gecenSaniye % 3600) ~/ 60;
+    int saniye = KuryeMerkezi.gecenSaniye % 60;
+    return '${saat.toString().padLeft(2, '0')}:${dakika.toString().padLeft(2, '0')}:${saniye.toString().padLeft(2, '0')}';
+  }
+
   void giderleriKaydet() {
     setState(() {
       KuryeMerkezi.yakitGideri = double.tryParse(yakitController.text) ?? 0.0;
       KuryeMerkezi.sigaraYemekGideri = double.tryParse(sigaraYemekController.text) ?? 0.0;
       KuryeMerkezi.digerMasraflar = double.tryParse(digerController.text) ?? 0.0;
     });
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Giderler kaydedildi!')));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Giderler ve kasa güncellendi!')));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Kasa & Gider Defteri')),
+      appBar: AppBar(title: const Text('Kasa, Gider & Mesai Takibi')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // Mesai Takip Kartı
+          Card(
+            color: KuryeMerkezi.mesaiAktif ? Colors.green.shade50 : Colors.grey.shade100,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Mesai Süresi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      const SizedBox(height: 4),
+                      Text(mesaiSuresiFormatli, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.deepOrange)),
+                    ],
+                  ),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: KuryeMerkezi.mesaiAktif ? Colors.red : Colors.green,
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: mesaiyiToggle,
+                    child: Text(KuryeMerkezi.mesaiAktif ? 'Mesaiyi Bitir' : 'Mesaiyi Başlat'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
           TextField(
             controller: yakitController,
             keyboardType: TextInputType.number,
@@ -303,7 +419,7 @@ class _MuhasebeEkraniState extends State<MuhasebeEkrani> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange, foregroundColor: Colors.white, padding: const EdgeInsets.all(12)),
             onPressed: giderleriKaydet,
-            child: const Text('Giderleri Güncelle', style: TextStyle(fontSize: 16)),
+            child: const Text('Giderleri Kaydet', style: TextStyle(fontSize: 16)),
           ),
           const SizedBox(height: 24),
           Card(
@@ -313,16 +429,21 @@ class _MuhasebeEkraniState extends State<MuhasebeEkrani> {
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
-                  const Text('GÜNLÜK NET KASA ÖZETİ', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Text('GÜNLÜK BİLANÇO ÖZETİ', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const Divider(),
                   Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                    const Text('Paket Kazancı:'),
-                    Text('₺${KuryeMerkezi.paketlerdenKazanc.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    const Text('Toplam Ciro (Paket+Bahşiş):'),
+                    Text('₺${KuryeMerkezi.toplamCiro.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
                   ]),
                   const SizedBox(height: 6),
                   Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                    const Text('Toplanan Bahşişler:'),
-                    Text('+ ₺${KuryeMerkezi.toplamBahsis.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                    const Text('Cüzdandaki Nakit:'),
+                    Text('₺${KuryeMerkezi.nakitToplam.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.amber)),
+                  ]),
+                  const SizedBox(height: 6),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                    const Text('Dijital / IBAN / POS Toplamı:'),
+                    Text('₺${KuryeMerkezi.dijitalToplam.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
                   ]),
                   const SizedBox(height: 6),
                   Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
@@ -376,8 +497,33 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
 
   @override
   Widget build(BuildContext context) {
+    List<Marker> paketPinleri = KuryeMerkezi.paketler.map((p) {
+      return Marker(
+        point: p.konum,
+        width: 50,
+        height: 50,
+        child: Tooltip(
+          message: '${p.paketNo} - ${p.semt}',
+          child: Icon(
+            Icons.location_pin,
+            color: p.teslimEdildi ? Colors.green : Colors.red,
+            size: 40,
+          ),
+        ),
+      );
+    }).toList();
+
+    paketPinleri.add(
+      Marker(
+        point: merkezKonum,
+        width: 60,
+        height: 60,
+        child: const Icon(Icons.motorcycle, color: Colors.deepOrange, size: 45),
+      ),
+    );
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Canlı Harita & Konum')),
+      appBar: AppBar(title: const Text('Uşak Canlı Kurye Haritası')),
       body: FlutterMap(
         mapController: _mapController,
         options: MapOptions(
@@ -389,16 +535,7 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
             urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
             userAgentPackageName: 'com.oguz.kurye',
           ),
-          MarkerLayer(
-            markers: [
-              Marker(
-                point: merkezKonum,
-                width: 60,
-                height: 60,
-                child: const Icon(Icons.motorcycle, color: Colors.deepOrange, size: 45),
-              ),
-            ],
-          ),
+          MarkerLayer(markers: paketPinleri),
         ],
       ),
       floatingActionButton: FloatingActionButton(
