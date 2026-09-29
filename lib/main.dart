@@ -29,7 +29,7 @@ class OguzKuryeProApp extends StatelessWidget {
 class PaketModel {
   String paketNo;
   String semt;
-  double tutar; // Artık elle özgürce belirleniyor
+  double tutar;
   String odemeTuru;
   bool teslimEdildi;
   LatLng konum;
@@ -68,7 +68,6 @@ class KuryeMerkezi {
   static int get toplamPaketSayisi => paketler.length;
   static int get teslimEdilenSayisi => paketler.where((p) => p.teslimEdildi).length;
 
-  // Toplam kazanç artık teslim edilen paketlerin kendi özel tutarlarının toplamıdır
   static double get paketlerdenKazanc => paketler
       .where((p) => p.teslimEdildi)
       .fold(0.0, (toplam, p) => toplam + p.tutar);
@@ -121,7 +120,7 @@ class _AnaPanelState extends State<AnaPanel> {
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.local_shipping), label: 'Paketler'),
           BottomNavigationBarItem(icon: Icon(Icons.account_balance_wallet), label: 'Kasa & Bilanço'),
-          BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Harita & Rota'),
+          BottomNavigationBarItem(icon: Icon(Icons.navigation), label: 'Canlı Harita'),
           BottomNavigationBarItem(icon: Icon(Icons.note_alt), label: 'Notlar'),
         ],
       ),
@@ -138,7 +137,7 @@ class PaketlerEkrani extends StatefulWidget {
 
 class _PaketlerEkraniState extends State<PaketlerEkrani> {
   final semtController = TextEditingController();
-  final tutarController = TextEditingController(text: '45'); // Varsayılan başlangıç
+  final tutarController = TextEditingController(text: '45');
   final bahsisController = TextEditingController();
   String secilenOdeme = 'Nakit';
   String bahsisOdemeTuru = 'Nakit';
@@ -566,7 +565,7 @@ class HaritaEkrani extends StatefulWidget {
 class _HaritaEkraniState extends State<HaritaEkrani> {
   LatLng merkezKonum = const LatLng(38.6742, 29.4059);
   final MapController _mapController = MapController();
-  final TextEditingController haritaAramaController = TextEditingController();
+  final TextEditingController aramaController = TextEditingController();
 
   Future<void> anlikKonumaGit() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -587,68 +586,37 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
     });
   }
 
-  void adresteAraVeGit(String arananAdres) {
-    String m = arananAdres.toLowerCase();
-    LatLng hedef;
-    if (m.contains('ismetpaşa') || m.contains('ismet pasa')) {
-      hedef = const LatLng(38.6750, 29.4070);
-    } else if (m.contains('atatürk') || m.contains('ataturk')) {
-      hedef = const LatLng(38.6800, 29.3950);
-    } else if (m.contains('fatih')) {
-      hedef = const LatLng(38.6650, 29.4150);
-    } else if (m.contains('cumhuriyet')) {
-      hedef = const LatLng(38.6700, 29.3900);
-    } else if (m.contains('dikilitaş') || m.contains('dikilitas')) {
-      hedef = const LatLng(38.6780, 29.3880);
-    } else if (m.contains('aybey')) {
-      hedef = const LatLng(38.6850, 29.4020);
-    } else {
-      hedef = LatLng(merkezKonum.latitude + 0.005, merkezKonum.longitude + 0.005);
-    }
-
+  void hedefiSecVeRotaCiz(String adres, LatLng hedefKonum) {
     setState(() {
-      KuryeMerkezi.aktifHedefKonum = hedef;
-      KuryeMerkezi.aktifHedefIsim = arananAdres;
+      KuryeMerkezi.aktifHedefKonum = hedefKonum;
+      KuryeMerkezi.aktifHedefIsim = adres;
     });
-
-    _mapController.move(hedef, 15.0);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('"$arananAdres" adresi bulundu, rota çizildi!')),
-    );
+    _mapController.move(hedefKonum, 15.0);
   }
 
   List<LatLng> rotaNoktalariUret(LatLng baslangis, LatLng bitis) {
     List<LatLng> noktalar = [];
-    int adimSayisi = 20;
+    int adimSayisi = 25;
     for (int i = 0; i <= adimSayisi; i++) {
       double t = i / adimSayisi;
       double lat = baslangis.latitude + (bitis.latitude - baslangis.latitude) * t;
       double lng = baslangis.longitude + (bitis.longitude - baslangis.longitude) * t;
-      noktalar.add(LatLng(lat + (sin(t * pi) * 0.001), lng));
+      noktalar.add(LatLng(lat + (sin(t * pi) * 0.0008), lng));
     }
     return noktalar;
   }
 
   @override
   Widget build(BuildContext context) {
-    List<Marker> paketPinleri = KuryeMerkezi.paketler.map((p) {
+    List<Marker> pinler = KuryeMerkezi.paketler.map((p) {
       return Marker(
         point: p.konum,
         width: 50,
         height: 50,
         child: GestureDetector(
-          onTap: () {
-            setState(() {
-              KuryeMerkezi.aktifHedefKonum = p.konum;
-              KuryeMerkezi.aktifHedefIsim = '${p.paketNo} - ${p.semt}';
-            });
-            _mapController.move(p.konum, 15.0);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Rota Seçildi: ${p.semt}')),
-            );
-          },
+          onTap: () => hedefiSecVeRotaCiz(p.semt, p.konum),
           child: Tooltip(
-            message: '${p.paketNo} - ${p.semt}',
+            message: '${p.paketNo} - ${p.semt} (Seçmek için dokun)',
             child: Icon(
               Icons.location_pin,
               color: p.teslimEdildi ? Colors.green : Colors.red,
@@ -659,21 +627,7 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
       );
     }).toList();
 
-    if (KuryeMerkezi.aktifHedefKonum != null) {
-      bool paketteVarMi = KuryeMerkezi.paketler.any((p) => p.konum == KuryeMerkezi.aktifHedefKonum);
-      if (!paketteVarMi) {
-        paketPinleri.add(
-          Marker(
-            point: KuryeMerkezi.aktifHedefKonum!,
-            width: 50,
-            height: 50,
-            child: const Icon(Icons.location_pin, color: Colors.blue, size: 45),
-          ),
-        );
-      }
-    }
-
-    paketPinleri.add(
+    pinler.add(
       Marker(
         point: merkezKonum,
         width: 60,
@@ -688,7 +642,7 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
         Polyline(
           points: rotaNoktalariUret(merkezKonum, KuryeMerkezi.aktifHedefKonum!),
           color: Colors.blueAccent,
-          strokeWidth: 5.0,
+          strokeWidth: 6.0,
         ),
       );
     }
@@ -708,9 +662,10 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
                 userAgentPackageName: 'com.oguz.kurye',
               ),
               PolylineLayer(polylines: rotalar),
-              MarkerLayer(markers: paketPinleri),
+              MarkerLayer(markers: pinler),
             ],
           ),
+          // Üst Arama Çubuğu
           Positioned(
             top: 45,
             left: 16,
@@ -726,14 +681,15 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: TextField(
-                        controller: haritaAramaController,
+                        controller: aramaController,
                         decoration: const InputDecoration(
-                          hintText: 'Adres veya semt ara (örn: İsmetpaşa)...',
+                          hintText: 'Adres ara (Atatürk Mah. vb.)...',
                           border: InputBorder.none,
                         ),
-                        onSubmitted: (value) {
-                          if (value.isNotEmpty) {
-                            adresteAraVeGit(value);
+                        onSubmitted: (val) {
+                          if (val.isNotEmpty) {
+                            LatLng bulunan = const LatLng(38.6780, 29.3950);
+                            hedefiSecVeRotaCiz(val, bulunan);
                           }
                         },
                       ),
@@ -741,27 +697,62 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
                     IconButton(
                       icon: const Icon(Icons.send, color: Colors.deepOrange),
                       onPressed: () {
-                        if (haritaAramaController.text.isNotEmpty) {
-                          adresteAraVeGit(haritaAramaController.text);
+                        if (aramaController.text.isNotEmpty) {
+                          LatLng bulunan = const LatLng(38.6780, 29.3950);
+                          hedefiSecVeRotaCiz(aramaController.text, bulunan);
                         }
                       },
                     ),
-                    if (KuryeMerkezi.aktifHedefKonum != null)
-                      IconButton(
-                        icon: const Icon(Icons.clear, color: Colors.red),
-                        onPressed: () {
-                          setState(() {
-                            KuryeMerkezi.aktifHedefKonum = null;
-                            KuryeMerkezi.aktifHedefIsim = '';
-                            haritaAramaController.clear();
-                          });
-                        },
-                      ),
                   ],
                 ),
               ),
             ),
           ),
+          // Alt Navigasyon Bilgi Paneli (Uygulama İçi Rota Asistanı)
+          if (KuryeMerkezi.aktifHedefKonum != null)
+            Positioned(
+              bottom: 20,
+              left: 16,
+              right: 16,
+              child: Card(
+                elevation: 8,
+                color: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      const CircleAvatar(
+                        backgroundColor: Colors.deepOrange,
+                        child: Icon(Icons.navigation, color: Colors.white),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('Hedef: ${KuryeMerkezi.aktifHedefIsim}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                            const SizedBox(height: 2),
+                            const Text('Canlı Rota Aktif (Uygulama İçi Takip)', style: TextStyle(color: Colors.green, fontSize: 13, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.red, size: 28),
+                        onPressed: () {
+                          setState(() {
+                            KuryeMerkezi.aktifHedefKonum = null;
+                            KuryeMerkezi.aktifHedefIsim = '';
+                            aramaController.clear();
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
       floatingActionButton: FloatingActionButton(
@@ -782,7 +773,7 @@ class NotlarEkrani extends StatefulWidget {
 }
 
 class _NotlarEkraniState extends State<NotlarEkrani> {
-  final notController = TextEditingController();
+  let notController = TextEditingController();
 
   void notEkle() {
     if (notController.text.isNotEmpty) {
