@@ -665,7 +665,6 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
               MarkerLayer(markers: pinler),
             ],
           ),
-          // Üst Arama Çubuğu
           Positioned(
             top: 45,
             left: 16,
@@ -708,7 +707,6 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
               ),
             ),
           ),
-          // Alt Navigasyon Bilgi Paneli (Uygulama İçi Rota Asistanı)
           if (KuryeMerkezi.aktifHedefKonum != null)
             Positioned(
               bottom: 20,
@@ -773,7 +771,7 @@ class NotlarEkrani extends StatefulWidget {
 }
 
 class _NotlarEkraniState extends State<NotlarEkrani> {
-  let notController = TextEditingController();
+  final TextEditingController notController = TextEditingController();
 
   void notEkle() {
     if (notController.text.isNotEmpty) {
