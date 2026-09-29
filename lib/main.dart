@@ -29,7 +29,7 @@ class OguzKuryeProApp extends StatelessWidget {
 class PaketModel {
   String paketNo;
   String semt;
-  double tutar;
+  double tutar; // Artık elle özgürce belirleniyor
   String odemeTuru;
   bool teslimEdildi;
   LatLng konum;
@@ -52,7 +52,6 @@ class BahsisModel {
 
 class KuryeMerkezi {
   static List<PaketModel> paketler = [];
-  static double bazPaketUcreti = 45.0;
   static double yakitGideri = 0.0;
   static double sigaraYemekGideri = 0.0;
   static double digerMasraflar = 0.0;
@@ -69,20 +68,24 @@ class KuryeMerkezi {
   static int get toplamPaketSayisi => paketler.length;
   static int get teslimEdilenSayisi => paketler.where((p) => p.teslimEdildi).length;
 
-  static double get paketlerdenKazanc => teslimEdilenSayisi * bazPaketUcreti;
+  // Toplam kazanç artık teslim edilen paketlerin kendi özel tutarlarının toplamıdır
+  static double get paketlerdenKazanc => paketler
+      .where((p) => p.teslimEdildi)
+      .fold(0.0, (toplam, p) => toplam + p.tutar);
+      
   static double get toplamBahsis => bahsisler.fold(0.0, (toplam, b) => toplam + b.miktar);
   static double get toplamCiro => paketlerdenKazanc + toplamBahsis;
   static double get toplamGider => yakitGideri + sigaraYemekGideri + digerMasraflar;
   static double get netKar => toplamCiro - toplamGider;
 
   static double get nakitToplam {
-    double pNakit = paketler.where((p) => p.teslimEdildi && p.odemeTuru == 'Nakit').length * bazPaketUcreti;
+    double pNakit = paketler.where((p) => p.teslimEdildi && p.odemeTuru == 'Nakit').fold(0.0, (t, p) => t + p.tutar);
     double bNakit = bahsisler.where((b) => b.tur == 'Nakit').fold(0.0, (t, b) => t + b.miktar);
     return pNakit + bNakit;
   }
 
   static double get dijitalToplam {
-    double pDijital = paketler.where((p) => p.teslimEdildi && p.odemeTuru != 'Nakit').length * bazPaketUcreti;
+    double pDijital = paketler.where((p) => p.teslimEdildi && p.odemeTuru != 'Nakit').fold(0.0, (t, p) => t + p.tutar);
     double bDijital = bahsisler.where((b) => b.tur != 'Nakit').fold(0.0, (t, b) => t + b.miktar);
     return pDijital + bDijital;
   }
@@ -135,6 +138,7 @@ class PaketlerEkrani extends StatefulWidget {
 
 class _PaketlerEkraniState extends State<PaketlerEkrani> {
   final semtController = TextEditingController();
+  final tutarController = TextEditingController(text: '45'); // Varsayılan başlangıç
   final bahsisController = TextEditingController();
   String secilenOdeme = 'Nakit';
   String bahsisOdemeTuru = 'Nakit';
@@ -161,6 +165,7 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
 
   void paketEkleModal() {
     semtController.clear();
+    tutarController.text = '45';
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -171,6 +176,12 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
             TextField(
               controller: semtController,
               decoration: const InputDecoration(labelText: 'Semt / Adres (örn: İsmetpaşa Mah.)', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: tutarController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Paket Ücreti (TL)', border: OutlineInputBorder()),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
@@ -187,13 +198,14 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
             style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange, foregroundColor: Colors.white),
             onPressed: () {
               if (semtController.text.isNotEmpty) {
+                double girilenTutar = double.tryParse(tutarController.text) ?? 45.0;
                 setState(() {
                   int sira = KuryeMerkezi.paketler.length + 1;
                   LatLng bulunanKonum = adresKoordinatBul(semtController.text);
                   KuryeMerkezi.paketler.add(PaketModel(
                     paketNo: 'Paket #$sira',
                     semt: semtController.text,
-                    tutar: KuryeMerkezi.bazPaketUcreti,
+                    tutar: girilenTutar,
                     odemeTuru: secilenOdeme,
                     konum: bulunanKonum,
                   ));
@@ -202,6 +214,58 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
               }
             },
             child: const Text('Ekle'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void paketDuzenleModal(int index) {
+    final p = KuryeMerkezi.paketler[index];
+    final editSemtController = TextEditingController(text: p.semt);
+    final editTutarController = TextEditingController(text: p.tutar.toString());
+    String editOdeme = p.odemeTuru;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${p.paketNo} Düzenle'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: editSemtController,
+              decoration: const InputDecoration(labelText: 'Semt / Adres', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: editTutarController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Paket Ücreti (TL)', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: editOdeme,
+              decoration: const InputDecoration(labelText: 'Ödeme Türü', border: OutlineInputBorder()),
+              items: ['Nakit', 'IBAN', 'POS', 'Multinet'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+              onChanged: (val) => editOdeme = val!,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('İptal')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange, foregroundColor: Colors.white),
+            onPressed: () {
+              setState(() {
+                p.semt = editSemtController.text;
+                p.tutar = double.tryParse(editTutarController.text) ?? p.tutar;
+                p.odemeTuru = editOdeme;
+                p.konum = adresKoordinatBul(p.semt);
+              });
+              Navigator.pop(context);
+            },
+            child: const Text('Kaydet'),
           ),
         ],
       ),
@@ -290,18 +354,28 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
                         color: p.teslimEdildi ? Colors.green.shade50 : Colors.white,
                         child: ListTile(
                           title: Text('${p.paketNo} - ${p.semt}', style: TextStyle(fontWeight: FontWeight.bold, decoration: p.teslimEdildi ? TextDecoration.lineThrough : null)),
-                          subtitle: Text('Ödeme: ${p.odemeTuru} | Ücret: ₺${p.tutar}'),
-                          trailing: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: p.teslimEdildi ? Colors.grey : Colors.green,
-                              foregroundColor: Colors.white,
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                p.teslimEdildi = !p.teslimEdildi;
-                              });
-                            },
-                            child: Text(p.teslimEdildi ? 'Tamamlandı' : 'Teslim Et'),
+                          subtitle: Text('Ödeme: ${p.odemeTuru} | Ücret: ₺${p.tutar.toStringAsFixed(0)}'),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit, color: Colors.blue, size: 20),
+                                onPressed: () => paketDuzenleModal(index),
+                              ),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: p.teslimEdildi ? Colors.grey : Colors.green,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    p.teslimEdildi = !p.teslimEdildi;
+                                  });
+                                },
+                                child: Text(p.teslimEdildi ? 'Tamam' : 'Teslim'),
+                              ),
+                            ],
                           ),
                         ),
                       );
@@ -539,7 +613,7 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
 
     _mapController.move(hedef, 15.0);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('"$aranesAdresi" adresi bulundu, rota çizildi!')),
+      SnackBar(content: Text('"$arananAdres" adresi bulundu, rota çizildi!')),
     );
   }
 
@@ -637,7 +711,6 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
               MarkerLayer(markers: paketPinleri),
             ],
           ),
-          // Google Maps tarzı üst arama çubuğu
           Positioned(
             top: 45,
             left: 16,
@@ -655,7 +728,7 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
                       child: TextField(
                         controller: haritaAramaController,
                         decoration: const InputDecoration(
-                          hintText: 'Adres veya semt ara (örn: Atatürk Mah.)...',
+                          hintText: 'Adres veya semt ara (örn: İsmetpaşa)...',
                           border: InputBorder.none,
                         ),
                         onSubmitted: (value) {
