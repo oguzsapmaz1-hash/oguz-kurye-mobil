@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:async';
+import 'dart:math';
 
 void main() {
   runApp(const OguzKuryeProApp());
@@ -15,7 +16,7 @@ class OguzKuryeProApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Oğuz Kurye Pro Max',
+      title: 'Oğuz Kurye Pro',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepOrange),
         useMaterial3: true,
@@ -29,7 +30,7 @@ class PaketModel {
   String paketNo;
   String semt;
   double tutar;
-  String odemeTuru; // Nakit, IBAN, POS, Multinet
+  String odemeTuru;
   bool teslimEdildi;
   LatLng konum;
 
@@ -45,7 +46,7 @@ class PaketModel {
 
 class BahsisModel {
   double miktar;
-  String tur; // Nakit, IBAN vb.
+  String tur;
   BahsisModel({required this.miktar, required this.tur});
 }
 
@@ -59,9 +60,12 @@ class KuryeMerkezi {
   static List<BahsisModel> bahsisler = [];
   static List<String> gunlukNotlar = [];
 
-  // Mesai Takibi
-  static bool mesaiAktif = gecenSaniye > 0;
+  static bool mesaiAktif = false;
   static int gecenSaniye = 0;
+  
+  // Rota çizimi için aktif hedef konum
+  static LatLng? aktifHedefKonum;
+  static String aktifHedefIsim = '';
 
   static int get toplamPaketSayisi => paketler.length;
   static int get teslimEdilenSayisi => paketler.where((p) => p.teslimEdildi).length;
@@ -72,7 +76,6 @@ class KuryeMerkezi {
   static double get toplamGider => yakitGideri + sigaraYemekGideri + digerMasraflar;
   static double get netKar => toplamCiro - toplamGider;
 
-  // Ödeme Kanallarına Göre Dağılım
   static double get nakitToplam {
     double pNakit = paketler.where((p) => p.teslimEdildi && p.odemeTuru == 'Nakit').length * bazPaketUcreti;
     double bNakit = bahsisler.where((b) => b.tur == 'Nakit').fold(0.0, (t, b) => t + b.miktar);
@@ -116,7 +119,7 @@ class _AnaPanelState extends State<AnaPanel> {
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.local_shipping), label: 'Paketler'),
           BottomNavigationBarItem(icon: Icon(Icons.account_balance_wallet), label: 'Kasa & Bilanço'),
-          BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Harita'),
+          BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Harita & Rota'),
           BottomNavigationBarItem(icon: Icon(Icons.note_alt), label: 'Notlar'),
         ],
       ),
@@ -137,11 +140,20 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
   String secilenOdeme = 'Nakit';
   String bahsisOdemeTuru = 'Nakit';
 
-  LatLng rastgeleUcakKonumuUret() {
-    double baseLat = 38.6742;
-    double baseLng = 29.4059;
-    int count = KuryeMerkezi.paketler.length;
-    return LatLng(baseLat + (count * 0.003), baseLng + (count * 0.003));
+  LatLng adresSec(String adres) {
+    String metin = adres.toLowerCase();
+    if (metin.contains('ismetpaşa') || metin.contains('ismet pasa')) {
+      return const LatLng(38.6750, 29.4070);
+    } else if (metin.contains('atatürk') || metin.contains('ataturk')) {
+      return const LatLng(38.6800, 29.3950);
+    } else if (metin.contains('fatih')) {
+      return const LatLng(38.6650, 29.4150);
+    } else if (metin.contains('cumhuriyet')) {
+      return const LatLng(38.6700, 29.3900);
+    } else {
+      int sayi = KuryeMerkezi.paketler.length;
+      return LatLng(38.6742 + (sayi * 0.002), 29.4059 + (sayi * 0.002));
+    }
   }
 
   void paketEkleModal() {
@@ -155,7 +167,7 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
           children: [
             TextField(
               controller: semtController,
-              decoration: const InputDecoration(labelText: 'Semt / Adres (örn: Atatürk Mah.)', border: OutlineInputBorder()),
+              decoration: const InputDecoration(labelText: 'Semt / Adres (örn: İsmetpaşa Mah.)', border: OutlineInputBorder()),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
@@ -174,12 +186,13 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
               if (semtController.text.isNotEmpty) {
                 setState(() {
                   int sira = KuryeMerkezi.paketler.length + 1;
+                  LatLng bulunanKonum = adresSec(semtController.text);
                   KuryeMerkezi.paketler.add(PaketModel(
                     paketNo: 'Paket #$sira',
                     semt: semtController.text,
                     tutar: KuryeMerkezi.bazPaketUcreti,
                     odemeTuru: secilenOdeme,
-                    konum: rastgeleUcakKonumuUret(),
+                    konum: bulunanKonum,
                   ));
                 });
                 Navigator.pop(context);
@@ -239,7 +252,7 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Oğuz Kurye Pro - Aktif Saha'),
+        title: const Text('Oğuz Kurye Pro - Paketler'),
         actions: [
           IconButton(
             icon: const Icon(Icons.card_giftcard),
@@ -329,9 +342,11 @@ class _MuhasebeEkraniState extends State<MuhasebeEkrani> {
 
   void _mesaiyiBaslatTimer() {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      setState(() {
-        KuryeMerkezi.gecenSaniye++;
-      });
+      if (mounted) {
+        setState(() {
+          KuryeMerkezi.gecenSaniye++;
+        });
+      }
     });
   }
 
@@ -365,11 +380,10 @@ class _MuhasebeEkraniState extends State<MuhasebeEkrani> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Kasa, Gider & Mesai Takibi')),
+      appBar: AppBar(title: const Text('Kasa, Gider & Mesai')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // Mesai Takip Kartı
           Card(
             color: KuryeMerkezi.mesaiAktif ? Colors.green.shade50 : Colors.grey.shade100,
             child: Padding(
@@ -432,7 +446,7 @@ class _MuhasebeEkraniState extends State<MuhasebeEkrani> {
                   const Text('GÜNLÜK BİLANÇO ÖZETİ', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const Divider(),
                   Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                    const Text('Toplam Ciro (Paket+Bahşiş):'),
+                    const Text('Toplam Ciro:'),
                     Text('₺${KuryeMerkezi.toplamCiro.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
                   ]),
                   const SizedBox(height: 6),
@@ -442,7 +456,7 @@ class _MuhasebeEkraniState extends State<MuhasebeEkrani> {
                   ]),
                   const SizedBox(height: 6),
                   Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                    const Text('Dijital / IBAN / POS Toplamı:'),
+                    const Text('Dijital / IBAN / POS:'),
                     Text('₺${KuryeMerkezi.dijitalToplam.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
                   ]),
                   const SizedBox(height: 6),
@@ -495,6 +509,20 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
     });
   }
 
+  // İki nokta arasında uygulama içinde rota çizgisi oluşturmak için ara noktalar türetici
+  List<LatLng> rotaNoktalariUret(LatLng baslangis, LatLng bitis) {
+    List<LatLng> noktalar = [];
+    int adimSayisi = 20;
+    for (int i = 0; i <= adimSayisi; i++) {
+      double t = i / adimSayisi;
+      double lat = baslangis.latitude + (bitis.latitude - baslangis.latitude) * t;
+      double lng = baslangis.longitude + (bitis.longitude - baslangis.longitude) * t;
+      // Hafif doğal bir kavis vermek için minik bir sapma ekleyelim
+      noktalar.add(LatLng(lat + (sin(t * pi) * 0.001), lng));
+    }
+    return noktalar;
+  }
+
   @override
   Widget build(BuildContext context) {
     List<Marker> paketPinleri = KuryeMerkezi.paketler.map((p) {
@@ -502,12 +530,23 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
         point: p.konum,
         width: 50,
         height: 50,
-        child: Tooltip(
-          message: '${p.paketNo} - ${p.semt}',
-          child: Icon(
-            Icons.location_pin,
-            color: p.teslimEdildi ? Colors.green : Colors.red,
-            size: 40,
+        child: GestureDetector(
+          onTap: () {
+            setState(() {
+              KuryeMerkezi.aktifHedefKonum = p.konum;
+              KuryeMerkezi.aktifHedefIsim = '${p.paketNo} (${p.semt})';
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Rota Seçildi: ${p.semt}. Haritada çizgi oluşturuldu!')),
+            );
+          },
+          child: Tooltip(
+            message: '${p.paketNo} - ${p.semt} (Gitmek için dokun)',
+            child: Icon(
+              Icons.location_pin,
+              color: p.teslimEdildi ? Colors.green : Colors.red,
+              size: 45,
+            ),
           ),
         ),
       );
@@ -522,8 +561,35 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
       ),
     );
 
+    // Rota çizgileri (Eğer bir hedef seçildiyse)
+    List<Polyline> rotalar = [];
+    if (KuryeMerkezi.aktifHedefKonum != null) {
+      rotalar.add(
+        Polyline(
+          points: rotaNoktalariUret(merkezKonum, KuryeMerkezi.aktifHedefKonum!),
+          color: Colors.blueAccent,
+          strokeWidth: 5.0,
+        ),
+      );
+    }
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Uşak Canlı Kurye Haritası')),
+      appBar: AppBar(
+        title: Text(KuryeMerkezi.aktifHedefIsim.isEmpty ? 'Uşak Canlı Harita & Rota' : 'Hedef: ${KuryeMerkezi.aktifHedefIsim}'),
+        actions: [
+          if (KuryeMerkezi.aktifHedefKonum != null)
+            IconButton(
+              icon: const Icon(Icons.clear, color: Colors.red),
+              tooltip: 'Rotayı İptal Et',
+              onPressed: () {
+                setState(() {
+                  KuryeMerkezi.aktifHedefKonum = null;
+                  KuryeMerkezi.aktifHedefIsim = '';
+                });
+              },
+            ),
+        ],
+      ),
       body: FlutterMap(
         mapController: _mapController,
         options: MapOptions(
@@ -535,6 +601,7 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
             urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
             userAgentPackageName: 'com.oguz.kurye',
           ),
+          PolylineLayer(polylines: rotalar),
           MarkerLayer(markers: paketPinleri),
         ],
       ),
