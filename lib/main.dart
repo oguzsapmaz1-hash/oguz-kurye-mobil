@@ -24,12 +24,11 @@ class OguzKuryeProApp extends StatelessWidget {
   }
 }
 
-// --- VERİ MODELİ VE MERKEZİ KASA ---
 class PaketModel {
   String paketNo;
   String semt;
   double tutar;
-  String odemeTuru; // Nakit, IBAN, POS, Multinet
+  String odemeTuru;
   bool teslimEdildi;
 
   PaketModel({
@@ -44,16 +43,10 @@ class PaketModel {
 class KuryeMerkezi {
   static List<PaketModel> paketler = [];
   static double bazPaketUcreti = 45.0;
-  
-  // Giderler
   static double yakitGideri = 0.0;
   static double sigaraYemekGideri = 0.0;
   static double digerMasraflar = 0.0;
-
-  // Bahşişler
   static double toplamBahsis = 0.0;
-
-  // Notlar
   static List<String> gunlukNotlar = [];
 
   static int get toplamPaketSayisi => paketler.length;
@@ -65,7 +58,6 @@ class KuryeMerkezi {
   static double get netKar => toplamCiro - toplamGider;
 }
 
-// --- ANA EKRAN & SEKMELER ---
 class AnaPanel extends StatefulWidget {
   const AnaPanel({super.key});
 
@@ -96,7 +88,7 @@ class _AnaPanelState extends State<AnaPanel> {
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.local_shipping), label: 'Paketler'),
           BottomNavigationBarItem(icon: Icon(Icons.account_balance_wallet), label: 'Kasa & Gider'),
-          BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Uşak Harita'),
+          BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Harita'),
           BottomNavigationBarItem(icon: Icon(Icons.note_alt), label: 'Notlar'),
         ],
       ),
@@ -104,7 +96,6 @@ class _AnaPanelState extends State<AnaPanel> {
   }
 }
 
-// --- 1. PAKETLER EKRANI ---
 class PaketlerEkrani extends StatefulWidget {
   const PaketlerEkrani({super.key});
 
@@ -128,7 +119,7 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
           children: [
             TextField(
               controller: semtController,
-              decoration: const InputDecoration(labelText: 'Semt / Adres (örn: Atatürk Mah.)', border: OutlineInputBorder()),
+              decoration: const InputDecoration(labelText: 'Semt / Adres', border: OutlineInputBorder()),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
@@ -197,7 +188,7 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Aktif Kurye Paketleri'),
+        title: const Text('Aktif Paketler'),
         actions: [
           IconButton(
             icon: const Icon(Icons.card_giftcard),
@@ -222,7 +213,7 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
           ),
           Expanded(
             child: KuryeMerkezi.paketler.isEmpty
-                ? const Center(child: Text('Henüz paket eklenmedi. Sağ alttan ekleyebilirsin.'))
+                ? const Center(child: Text('Henüz paket eklenmedi.'))
                 : ListView.builder(
                     itemCount: KuryeMerkezi.paketler.length,
                     itemBuilder: (context, index) {
@@ -243,7 +234,7 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
                                 p.teslimEdildi = !p.teslimEdildi;
                               });
                             },
-                            child: Text(p.teslimEdildi ? 'Teslim Edildi' : 'Teslim Et'),
+                            child: Text(p.teslimEdildi ? 'Tamamlandı' : 'Teslim Et'),
                           ),
                         ),
                       );
@@ -263,7 +254,6 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
   }
 }
 
-// --- 2. MUHASEBE & GİDER EKRANI ---
 class MuhasebeEkrani extends StatefulWidget {
   const MuhasebeEkrani({super.key});
 
@@ -282,13 +272,13 @@ class _MuhasebeEkraniState extends State<MuhasebeEkrani> {
       KuryeMerkezi.sigaraYemekGideri = double.tryParse(sigaraYemekController.text) ?? 0.0;
       KuryeMerkezi.digerMasraflar = double.tryParse(digerController.text) ?? 0.0;
     });
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Giderler başarıyla kaydedildi!')));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Giderler kaydedildi!')));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Günlük Kasa & Gider Defteri')),
+      appBar: AppBar(title: const Text('Kasa & Gider Defteri')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -307,7 +297,7 @@ class _MuhasebeEkraniState extends State<MuhasebeEkrani> {
           TextField(
             controller: digerController,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: 'Tamir / Bakım / Diğer Masraf (TL)', border: OutlineInputBorder()),
+            decoration: const InputDecoration(labelText: 'Tamir / Diğer Masraf (TL)', border: OutlineInputBorder()),
           ),
           const SizedBox(height: 16),
           ElevatedButton(
@@ -354,7 +344,6 @@ class _MuhasebeEkraniState extends State<MuhasebeEkrani> {
   }
 }
 
-// --- 3. HARİTA EKRANI ---
 class HaritaEkrani extends StatefulWidget {
   const HaritaEkrani({super.key});
 
@@ -363,7 +352,7 @@ class HaritaEkrani extends StatefulWidget {
 }
 
 class _HaritaEkraniState extends State<HaritaEkrani> {
-  LatLng usakMerkez = const LatLng(38.6742, 29.4059);
+  LatLng merkezKonum = const LatLng(38.6742, 29.4059);
   final MapController _mapController = MapController();
 
   Future<void> anlikKonumaGit() async {
@@ -381,18 +370,18 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
     
     _mapController.move(yeniKonum, 15.0);
     setState(() {
-      usakMerkez = yeniKonum;
+      merkezKonum = yeniKonum;
     });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Uşak Canlı Kurye Haritası')),
+      appBar: AppBar(title: const Text('Canlı Harita & Konum')),
       body: FlutterMap(
         mapController: _mapController,
         options: MapOptions(
-          initialCenter: usakMerkez,
+          initialCenter: merkezKonum,
           initialZoom: 14.0,
         ),
         children: [
@@ -403,7 +392,7 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
           MarkerLayer(
             markers: [
               Marker(
-                point: usakMerkez,
+                point: merkezKonum,
                 width: 60,
                 height: 60,
                 child: const Icon(Icons.motorcycle, color: Colors.deepOrange, size: 45),
@@ -422,7 +411,6 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
   }
 }
 
-// --- 4. NOTLAR EKRANI ---
 class NotlarEkrani extends StatefulWidget {
   const NotlarEkrani({super.key});
 
@@ -445,7 +433,7 @@ class _NotlarEkraniState extends State<NotlarEkrani> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Günlük Notlar & Hatırlatıcılar')),
+      appBar: AppBar(title: const Text('Notlar & Hatırlatıcılar')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -455,7 +443,7 @@ class _NotlarEkraniState extends State<NotlarEkrani> {
                 Expanded(
                   child: TextField(
                     controller: notController,
-                    decoration: const InputDecoration(labelText: 'Not yaz (örn: Müşteri adresi tarif vs.)', border: OutlineInputBorder()),
+                    decoration: const InputDecoration(labelText: 'Not yaz (adres tarifi vs.)', border: OutlineInputBorder()),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -469,7 +457,7 @@ class _NotlarEkraniState extends State<NotlarEkrani> {
             const SizedBox(height: 16),
             Expanded(
               child: KuryeMerkezi.gunlukNotlar.isEmpty
-                  ? const Center(child: Text('Henüz eklenmiş bir not yok.'))
+                  ? const Center(child: Text('Henüz not eklenmedi.'))
                   : ListView.builder(
                       itemCount: KuryeMerkezi.gunlukNotlar.length,
                       itemBuilder: (context, index) {
