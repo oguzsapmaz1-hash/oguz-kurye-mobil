@@ -4,39 +4,83 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 
 void main() {
-  runApp(const OguzKuryeApp());
+  runApp(const OguzKuryeProApp());
 }
 
-class OguzKuryeApp extends StatelessWidget {
-  const OguzKuryeApp({super.key});
+class OguzKuryeProApp extends StatelessWidget {
+  const OguzKuryeProApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Oğuz Kurye',
+      title: 'Oğuz Kurye Pro',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepOrange),
         useMaterial3: true,
       ),
-      home: const AnaGezinmeEkrani(),
+      home: const AnaPanel(),
     );
   }
 }
 
-class AnaGezinmeEkrani extends StatefulWidget {
-  const AnaGezinmeEkrani({super.key});
+// --- VERİ MODELİ VE MERKEZİ KASA ---
+class PaketModel {
+  String paketNo;
+  String semt;
+  double tutar;
+  String odemeTuru; // Nakit, IBAN, POS, Multinet
+  bool teslimEdildi;
 
-  @override
-  State<AnaGezinmeEkrani> createState() => _AnaGezinmeEkraniState();
+  PaketModel({
+    required this.paketNo,
+    required this.semt,
+    required this.tutar,
+    required this.odemeTuru,
+    this.teslimEdildi = false,
+  });
 }
 
-class _AnaGezinmeEkraniState extends State<AnaGezinmeEkrani> {
+class KuryeMerkezi {
+  static List<PaketModel> paketler = [];
+  static double bazPaketUcreti = 45.0;
+  
+  // Giderler
+  static double yakitGideri = 0.0;
+  static double sigaraYemekGideri = 0.0;
+  static double digerMasraflar = 0.0;
+
+  // Bahşişler
+  static double toplamBahsis = 0.0;
+
+  // Notlar
+  static List<String> gunlukNotlar = [];
+
+  static int get toplamPaketSayisi => paketler.length;
+  static int get teslimEdilenSayisi => paketler.where((p) => p.teslimEdildi).length;
+
+  static double get paketlerdenKazanc => teslimEdilenSayisi * bazPaketUcreti;
+  static double get toplamCiro => paketlerdenKazanc + toplamBahsis;
+  static double get toplamGider => yakitGideri + sigaraYemekGideri + digerMasraflar;
+  static double get netKar => toplamCiro - toplamGider;
+}
+
+// --- ANA EKRAN & SEKMELER ---
+class AnaPanel extends StatefulWidget {
+  const AnaPanel({super.key});
+
+  @override
+  State<AnaPanel> createState() => _AnaPanelState();
+}
+
+class _AnaPanelState extends State<AnaPanel> {
   int _seciliSekme = 0;
 
   final List<Widget> _sayfalar = [
-    const KazancEkrani(),
+    const PaketlerEkrani(),
+    const MuhasebeEkrani(),
     const HaritaEkrani(),
+    const NotlarEkrani(),
   ];
 
   @override
@@ -45,138 +89,272 @@ class _AnaGezinmeEkraniState extends State<AnaGezinmeEkrani> {
       body: _sayfalar[_seciliSekme],
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _seciliSekme,
+        type: BottomNavigationBarType.fixed,
+        selectedItemColor: Colors.deepOrange,
+        unselectedItemColor: Colors.grey,
         onTap: (index) => setState(() => _seciliSekme = index),
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.list_alt), label: 'Paketler & Kazanç'),
+          BottomNavigationBarItem(icon: Icon(Icons.local_shipping), label: 'Paketler'),
+          BottomNavigationBarItem(icon: Icon(Icons.account_balance_wallet), label: 'Kasa & Gider'),
           BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Uşak Harita'),
+          BottomNavigationBarItem(icon: Icon(Icons.note_alt), label: 'Notlar'),
         ],
       ),
     );
   }
 }
 
-class PaketModel {
-  String paketAdi;
-  String odemeTuru;
-  bool teslimEdildi;
-
-  PaketModel({required this.paketAdi, required this.odemeTuru, this.teslimEdildi = false});
-}
-
-class KazancEkrani extends StatefulWidget {
-  const KazancEkrani({super.key});
+// --- 1. PAKETLER EKRANI ---
+class PaketlerEkrani extends StatefulWidget {
+  const PaketlerEkrani({super.key});
 
   @override
-  State<KazancEkrani> createState() => _KazancEkraniState();
+  State<PaketlerEkrani> createState() => _PaketlerEkraniState();
 }
 
-class _KazancEkraniState extends State<KazancEkrani> {
-  final yakitController = TextEditingController();
-  final double paketUcreti = 45.0;
-  
-  List<PaketModel> paketler = [];
+class _PaketlerEkraniState extends State<PaketlerEkrani> {
+  final semtController = TextEditingController();
+  final bahsisController = TextEditingController();
   String secilenOdeme = 'Nakit';
 
-  void yeniPaketEkle() {
-    setState(() {
-      int sira = paketler.length + 1;
-      paketler.add(PaketModel(paketAdi: 'Paket $sira', odemeTuru: secilenOdeme));
-    });
+  void paketEkleModal() {
+    semtController.clear();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Yeni Paket Ekle'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: semtController,
+              decoration: const InputDecoration(labelText: 'Semt / Adres (örn: Atatürk Mah.)', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: secilenOdeme,
+              decoration: const InputDecoration(labelText: 'Ödeme Türü', border: OutlineInputBorder()),
+              items: ['Nakit', 'IBAN', 'POS', 'Multinet'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+              onChanged: (val) => secilenOdeme = val!,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('İptal')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange, foregroundColor: Colors.white),
+            onPressed: () {
+              if (semtController.text.isNotEmpty) {
+                setState(() {
+                  int sira = KuryeMerkezi.paketler.length + 1;
+                  KuryeMerkezi.paketler.add(PaketModel(
+                    paketNo: 'Paket #$sira',
+                    semt: semtController.text,
+                    tutar: KuryeMerkezi.bazPaketUcreti,
+                    odemeTuru: secilenOdeme,
+                  ));
+                });
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Ekle'),
+          ),
+        ],
+      ),
+    );
   }
 
-  double get netKazanc {
-    int teslimEdilenSayisi = paketler.where((p) => p.teslimEdildi).length;
-    double yakit = double.tryParse(yakitController.text) ?? 0.0;
-    return (teslimEdilenSayisi * paketUcreti) - yakit;
+  void bahsisEkleModal() {
+    bahsisController.clear();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Bahşiş Ekle'),
+        content: TextField(
+          controller: bahsisController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: 'Bahşiş Miktarı (TL)', border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('İptal')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+            onPressed: () {
+              double bahsis = double.tryParse(bahsisController.text) ?? 0.0;
+              setState(() {
+                KuryeMerkezi.toplamBahsis += bahsis;
+              });
+              Navigator.pop(context);
+            },
+            child: const Text('Ekle'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Oğuz Kurye - Paket & Kazanç')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            TextField(
-              controller: yakitController, 
-              keyboardType: TextInputType.number, 
-              decoration: const InputDecoration(labelText: 'Günlük Toplam Yakıt Gideri (TL)', border: OutlineInputBorder()),
-              onChanged: (val) => setState(() {}),
-            ),
-            const SizedBox(height: 12),
-            Row(
+      appBar: AppBar(
+        title: const Text('Aktif Kurye Paketleri'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.card_giftcard),
+            tooltip: 'Bahşiş Ekle',
+            onPressed: bahsisEkleModal,
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            color: Colors.deepOrange.shade50,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                const Text('Ödeme: ', style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(width: 5),
-                DropdownButton<String>(
-                  value: secilenOdeme,
-                  items: ['Nakit', 'IBAN', 'POS', 'Multinet']
-                      .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                      .toList(),
-                  onChanged: (val) => setState(() => secilenOdeme = val!),
-                ),
-                const Spacer(),
-                ElevatedButton.icon(
-                  onPressed: yeniPaketEkle,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Paket Ekle'),
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange, foregroundColor: Colors.white),
-                ),
+                Text('Toplam: ${KuryeMerkezi.toplamPaketSayisi}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text('Teslim: ${KuryeMerkezi.teslimEdilenSayisi}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                Text('Bahşiş: ₺${KuryeMerkezi.toplamBahsis.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
               ],
             ),
-            const SizedBox(height: 10),
-            Expanded(
-              child: paketler.isEmpty
-                  ? const Center(child: Text('Henüz paket eklenmedi. Yukarıdan ekleyebilirsiniz.'))
-                  : ListView.builder(
-                      itemCount: paketler.length,
-                      itemBuilder: (context, index) {
-                        final paket = paketler[index];
-                        return Card(
-                          color: paket.teslimEdildi ? Colors.green.shade50 : Colors.white,
-                          child: ListTile(
-                            title: Text(paket.paketAdi, style: TextStyle(fontWeight: FontWeight.bold, decoration: paket.teslimEdildi ? TextDecoration.lineThrough : null)),
-                            subtitle: Text('Ödeme Türü: ${paket.odemeTuru}'),
-                            trailing: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: paket.teslimEdildi ? Colors.grey : Colors.green,
-                                foregroundColor: Colors.white,
-                              ),
-                              onPressed: () {
-                                setState(() {
-                                  paket.teslimEdildi = !paket.teslimEdildi;
-                                });
-                              },
-                              child: Text(paket.teslimEdildi ? 'Teslim Edildi' : 'Teslim Et'),
+          ),
+          Expanded(
+            child: KuryeMerkezi.paketler.isEmpty
+                ? const Center(child: Text('Henüz paket eklenmedi. Sağ alttan ekleyebilirsin.'))
+                : ListView.builder(
+                    itemCount: KuryeMerkezi.paketler.length,
+                    itemBuilder: (context, index) {
+                      final p = KuryeMerkezi.paketler[index];
+                      return Card(
+                        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        color: p.teslimEdildi ? Colors.green.shade50 : Colors.white,
+                        child: ListTile(
+                          title: Text('${p.paketNo} - ${p.semt}', style: TextStyle(fontWeight: FontWeight.bold, decoration: p.teslimEdildi ? TextDecoration.lineThrough : null)),
+                          subtitle: Text('Ödeme: ${p.odemeTuru} | Ücret: ₺${p.tutar}'),
+                          trailing: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: p.teslimEdildi ? Colors.grey : Colors.green,
+                              foregroundColor: Colors.white,
                             ),
+                            onPressed: () {
+                              setState(() {
+                                p.teslimEdildi = !p.teslimEdildi;
+                              });
+                            },
+                            child: Text(p.teslimEdildi ? 'Teslim Edildi' : 'Teslim Et'),
                           ),
-                        );
-                      },
-                    ),
-            ),
-            const SizedBox(height: 10),
-            Card(
-              color: Colors.deepOrange.shade50,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  children: [
-                    const Text('Hesaplanan Net Kazanç', style: TextStyle(fontSize: 16)),
-                    const SizedBox(height: 5),
-                    Text('₺${netKazanc.toStringAsFixed(2)}', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.deepOrange.shade800)),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: paketEkleModal,
+        backgroundColor: Colors.deepOrange,
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.add),
+        label: const Text('Yeni Paket'),
       ),
     );
   }
 }
 
+// --- 2. MUHASEBE & GİDER EKRANI ---
+class MuhasebeEkrani extends StatefulWidget {
+  const MuhasebeEkrani({super.key});
+
+  @override
+  State<MuhasebeEkrani> createState() => _MuhasebeEkraniState();
+}
+
+class _MuhasebeEkraniState extends State<MuhasebeEkrani> {
+  final yakitController = TextEditingController(text: KuryeMerkezi.yakitGideri.toString());
+  final sigaraYemekController = TextEditingController(text: KuryeMerkezi.sigaraYemekGideri.toString());
+  final digerController = TextEditingController(text: KuryeMerkezi.digerMasraflar.toString());
+
+  void giderleriKaydet() {
+    setState(() {
+      KuryeMerkezi.yakitGideri = double.tryParse(yakitController.text) ?? 0.0;
+      KuryeMerkezi.sigaraYemekGideri = double.tryParse(sigaraYemekController.text) ?? 0.0;
+      KuryeMerkezi.digerMasraflar = double.tryParse(digerController.text) ?? 0.0;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Giderler başarıyla kaydedildi!')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Günlük Kasa & Gider Defteri')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          TextField(
+            controller: yakitController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Benzin / Yakıt Gideri (TL)', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: sigaraYemekController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Sigara & Yemek Gideri (TL)', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: digerController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Tamir / Bakım / Diğer Masraf (TL)', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange, foregroundColor: Colors.white, padding: const EdgeInsets.all(12)),
+            onPressed: giderleriKaydet,
+            child: const Text('Giderleri Güncelle', style: TextStyle(fontSize: 16)),
+          ),
+          const SizedBox(height: 24),
+          Card(
+            elevation: 4,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  const Text('GÜNLÜK NET KASA ÖZETİ', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Divider(),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                    const Text('Paket Kazancı:'),
+                    Text('₺${KuryeMerkezi.paketlerdenKazanc.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  ]),
+                  const SizedBox(height: 6),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                    const Text('Toplanan Bahşişler:'),
+                    Text('+ ₺${KuryeMerkezi.toplamBahsis.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                  ]),
+                  const SizedBox(height: 6),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                    const Text('Toplam Giderler:'),
+                    Text('- ₺${KuryeMerkezi.toplamGider.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+                  ]),
+                  const Divider(),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                    const Text('NET KALAN KÂR:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    Text('₺${KuryeMerkezi.netKar.toStringAsFixed(2)}', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.green.shade700)),
+                  ]),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// --- 3. HARİTA EKRANI ---
 class HaritaEkrani extends StatefulWidget {
   const HaritaEkrani({super.key});
 
@@ -189,13 +367,10 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
   final MapController _mapController = MapController();
 
   Future<void> anlikKonumaGit() async {
-    bool serviceEnabled;
-    LocationPermission permission;
-
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) return;
 
-    permission = await Geolocator.checkPermission();
+    LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) return;
@@ -213,7 +388,7 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Uşak Canlı Harita')),
+      appBar: AppBar(title: const Text('Uşak Canlı Kurye Haritası')),
       body: FlutterMap(
         mapController: _mapController,
         options: MapOptions(
@@ -229,9 +404,9 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
             markers: [
               Marker(
                 point: usakMerkez,
-                width: 50,
-                height: 50,
-                child: const Icon(Icons.motorcycle, color: Colors.deepOrange, size: 40),
+                width: 60,
+                height: 60,
+                child: const Icon(Icons.motorcycle, color: Colors.deepOrange, size: 45),
               ),
             ],
           ),
@@ -242,6 +417,81 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
         backgroundColor: Colors.deepOrange,
         foregroundColor: Colors.white,
         child: const Icon(Icons.my_location),
+      ),
+    );
+  }
+}
+
+// --- 4. NOTLAR EKRANI ---
+class NotlarEkrani extends StatefulWidget {
+  const NotlarEkrani({super.key});
+
+  @override
+  State<NotlarEkrani> createState() => _NotlarEkraniState();
+}
+
+class _NotlarEkraniState extends State<NotlarEkrani> {
+  final notController = TextEditingController();
+
+  void notEkle() {
+    if (notController.text.isNotEmpty) {
+      setState(() {
+        KuryeMerkezi.gunlukNotlar.add(notController.text);
+        notController.clear();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Günlük Notlar & Hatırlatıcılar')),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: notController,
+                    decoration: const InputDecoration(labelText: 'Not yaz (örn: Müşteri adresi tarif vs.)', border: OutlineInputBorder()),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16)),
+                  onPressed: notEkle,
+                  child: const Text('Ekle'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: KuryeMerkezi.gunlukNotlar.isEmpty
+                  ? const Center(child: Text('Henüz eklenmiş bir not yok.'))
+                  : ListView.builder(
+                      itemCount: KuryeMerkezi.gunlukNotlar.length,
+                      itemBuilder: (context, index) {
+                        return Card(
+                          child: ListTile(
+                            leading: const Icon(Icons.note, color: Colors.deepOrange),
+                            title: Text(KuryeMerkezi.gunlukNotlar[index]),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.grey),
+                              onPressed: () {
+                                setState(() {
+                                  KuryeMerkezi.gunlukNotlar.removeAt(index);
+                                });
+                              },
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
