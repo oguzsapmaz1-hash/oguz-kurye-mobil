@@ -2,10 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:math';
+import 'dart:convert';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await KuryeMerkezi.verileriYukle();
   runApp(const OguzKuryeProApp());
 }
 
@@ -32,7 +36,8 @@ class PaketModel {
   double tutar;
   String odemeTuru;
   bool teslimEdildi;
-  LatLng konum;
+  double lat;
+  double lng;
 
   PaketModel({
     required this.paketNo,
@@ -40,14 +45,38 @@ class PaketModel {
     required this.tutar,
     required this.odemeTuru,
     this.teslimEdildi = false,
-    required this.konum,
+    required this.lat,
+    required this.lng,
   });
+
+  Map<String, dynamic> toJson() => {
+    'paketNo': paketNo,
+    'semt': semt,
+    'tutar': tutar,
+    'odemeTuru': odemeTuru,
+    'teslimEdildi': teslimEdildi,
+    'lat': lat,
+    'lng': lng,
+  };
+
+  factory PaketModel.fromJson(Map<String, dynamic> json) => PaketModel(
+    paketNo: json['paketNo'],
+    semt: json['semt'],
+    tutar: json['tutar'],
+    odemeTuru: json['odemeTuru'],
+    teslimEdildi: json['teslimEdildi'],
+    lat: json['lat'],
+    lng: json['lng'],
+  );
 }
 
 class BahsisModel {
   double miktar;
   String tur;
   BahsisModel({required this.miktar, required this.tur});
+
+  Map<String, dynamic> toJson() => {'miktar': miktar, 'tur': tur};
+  factory BahsisModel.fromJson(Map<String, dynamic> json) => BahsisModel(miktar: json['miktar'], tur: json['tur']);
 }
 
 class KuryeMerkezi {
@@ -64,6 +93,44 @@ class KuryeMerkezi {
   
   static LatLng? aktifHedefKonum;
   static String aktifHedefIsim = '';
+
+  // Kalıcı Hafızaya Kaydetme
+  static Future<void> verileriKaydet() async {
+    final prefs = await SharedPreferences.getInstance();
+    prefs.setString('paketler', jsonEncode(paketler.map((e) => e.toJson()).toList()));
+    prefs.setString('bahsisler', jsonEncode(bahsisler.map((e) => e.toJson()).toList()));
+    prefs.setString('notlar', jsonEncode(gunlukNotlar));
+    prefs.setDouble('yakit', yakitGideri);
+    prefs.setDouble('sigaraYemek', sigaraYemekGideri);
+    prefs.setDouble('diger', digerMasraflar);
+  }
+
+  // Kalıcı Hafızadan Yükleme
+  static Future<void> verileriYukle() async {
+    final prefs = await SharedPreferences.getInstance();
+    
+    String? pStr = prefs.getString('paketler');
+    if (pStr != null) {
+      List list = jsonDecode(pStr);
+      paketler = list.map((e) => PaketModel.fromJson(e)).toList();
+    }
+
+    String? bStr = prefs.getString('bahsisler');
+    if (bStr != null) {
+      List list = jsonDecode(bStr);
+      bahsisler = list.map((e) => BahsisModel.fromJson(e)).toList();
+    }
+
+    String? nStr = prefs.getString('notlar');
+    if (nStr != null) {
+      List list = jsonDecode(nStr);
+      gunlukNotlar = list.map((e) => e.toString()).toList();
+    }
+
+    yakitGideri = prefs.getDouble('yakit') ?? 0.0;
+    sigaraYemekGideri = prefs.getDouble('sigaraYemek') ?? 0.0;
+    digerMasraflar = prefs.getDouble('diger') ?? 0.0;
+  }
 
   static int get toplamPaketSayisi => paketler.length;
   static int get teslimEdilenSayisi => paketler.where((p) => p.teslimEdildi).length;
@@ -152,10 +219,6 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
       return const LatLng(38.6650, 29.4150);
     } else if (m.contains('cumhuriyet')) {
       return const LatLng(38.6700, 29.3900);
-    } else if (m.contains('dikilitaş') || m.contains('dikilitas')) {
-      return const LatLng(38.6780, 29.3880);
-    } else if (m.contains('aybey')) {
-      return const LatLng(38.6850, 29.4020);
     } else {
       int sayi = KuryeMerkezi.paketler.length;
       return LatLng(38.6742 + (sayi * 0.002), 29.4059 + (sayi * 0.002));
@@ -195,76 +258,26 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('İptal')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange, foregroundColor: Colors.white),
-            onPressed: () {
+            onPressed: () async {
               if (semtController.text.isNotEmpty) {
                 double girilenTutar = double.tryParse(tutarController.text) ?? 45.0;
+                LatLng bulunanKonum = adresKoordinatBul(semtController.text);
                 setState(() {
                   int sira = KuryeMerkezi.paketler.length + 1;
-                  LatLng bulunanKonum = adresKoordinatBul(semtController.text);
                   KuryeMerkezi.paketler.add(PaketModel(
                     paketNo: 'Paket #$sira',
                     semt: semtController.text,
                     tutar: girilenTutar,
                     odemeTuru: secilenOdeme,
-                    konum: bulunanKonum,
+                    lat: bulunanKonum.latitude,
+                    lng: bulunanKonum.longitude,
                   ));
                 });
+                await KuryeMerkezi.verileriKaydet();
                 Navigator.pop(context);
               }
             },
             child: const Text('Ekle'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void paketDuzenleModal(int index) {
-    final p = KuryeMerkezi.paketler[index];
-    final editSemtController = TextEditingController(text: p.semt);
-    final editTutarController = TextEditingController(text: p.tutar.toString());
-    String editOdeme = p.odemeTuru;
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('${p.paketNo} Düzenle'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: editSemtController,
-              decoration: const InputDecoration(labelText: 'Semt / Adres', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: editTutarController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Paket Ücreti (TL)', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: editOdeme,
-              decoration: const InputDecoration(labelText: 'Ödeme Türü', border: OutlineInputBorder()),
-              items: ['Nakit', 'IBAN', 'POS', 'Multinet'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-              onChanged: (val) => editOdeme = val!,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('İptal')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange, foregroundColor: Colors.white),
-            onPressed: () {
-              setState(() {
-                p.semt = editSemtController.text;
-                p.tutar = double.tryParse(editTutarController.text) ?? p.tutar;
-                p.odemeTuru = editOdeme;
-                p.konum = adresKoordinatBul(p.semt);
-              });
-              Navigator.pop(context);
-            },
-            child: const Text('Kaydet'),
           ),
         ],
       ),
@@ -298,12 +311,13 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('İptal')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
-            onPressed: () {
+            onPressed: () async {
               double miktar = double.tryParse(bahsisController.text) ?? 0.0;
               if (miktar > 0) {
                 setState(() {
                   KuryeMerkezi.bahsisler.add(BahsisModel(miktar: miktar, tur: bahsisOdemeTuru));
                 });
+                await KuryeMerkezi.verileriKaydet();
                 Navigator.pop(context);
               }
             },
@@ -354,27 +368,19 @@ class _PaketlerEkraniState extends State<PaketlerEkrani> {
                         child: ListTile(
                           title: Text('${p.paketNo} - ${p.semt}', style: TextStyle(fontWeight: FontWeight.bold, decoration: p.teslimEdildi ? TextDecoration.lineThrough : null)),
                           subtitle: Text('Ödeme: ${p.odemeTuru} | Ücret: ₺${p.tutar.toStringAsFixed(0)}'),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.edit, color: Colors.blue, size: 20),
-                                onPressed: () => paketDuzenleModal(index),
-                              ),
-                              ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: p.teslimEdildi ? Colors.grey : Colors.green,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                                ),
-                                onPressed: () {
-                                  setState(() {
-                                    p.teslimEdildi = !p.teslimEdildi;
-                                  });
-                                },
-                                child: Text(p.teslimEdildi ? 'Tamam' : 'Teslim'),
-                              ),
-                            ],
+                          trailing: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: p.teslimEdildi ? Colors.grey : Colors.green,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                            ),
+                            onPressed: () async {
+                              setState(() {
+                                p.teslimEdildi = !p.teslimEdildi;
+                              });
+                              await KuryeMerkezi.verileriKaydet();
+                            },
+                            child: Text(p.teslimEdildi ? 'Tamam' : 'Teslim Et'),
                           ),
                         ),
                       );
@@ -444,13 +450,14 @@ class _MuhasebeEkraniState extends State<MuhasebeEkrani> {
     return '${saat.toString().padLeft(2, '0')}:${dakika.toString().padLeft(2, '0')}:${saniye.toString().padLeft(2, '0')}';
   }
 
-  void giderleriKaydet() {
+  void giderleriKaydet() async {
     setState(() {
       KuryeMerkezi.yakitGideri = double.tryParse(yakitController.text) ?? 0.0;
       KuryeMerkezi.sigaraYemekGideri = double.tryParse(sigaraYemekController.text) ?? 0.0;
       KuryeMerkezi.digerMasraflar = double.tryParse(digerController.text) ?? 0.0;
     });
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Giderler ve kasa güncellendi!')));
+    await KuryeMerkezi.verileriKaydet();
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Giderler kalıcı olarak kaydedildi!')));
   }
 
   @override
@@ -610,11 +617,11 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
   Widget build(BuildContext context) {
     List<Marker> pinler = KuryeMerkezi.paketler.map((p) {
       return Marker(
-        point: p.konum,
+        point: LatLng(p.lat, p.lng),
         width: 50,
         height: 50,
         child: GestureDetector(
-          onTap: () => hedefiSecVeRotaCiz(p.semt, p.konum),
+          onTap: () => hedefiSecVeRotaCiz(p.semt, LatLng(p.lat, p.lng)),
           child: Tooltip(
             message: '${p.paketNo} - ${p.semt} (Seçmek için dokun)',
             child: Icon(
@@ -773,12 +780,13 @@ class NotlarEkrani extends StatefulWidget {
 class _NotlarEkraniState extends State<NotlarEkrani> {
   final TextEditingController notController = TextEditingController();
 
-  void notEkle() {
+  void notEkle() async {
     if (notController.text.isNotEmpty) {
       setState(() {
         KuryeMerkezi.gunlukNotlar.add(notController.text);
         notController.clear();
       });
+      await KuryeMerkezi.verileriKaydet();
     }
   }
 
@@ -819,10 +827,11 @@ class _NotlarEkraniState extends State<NotlarEkrani> {
                             title: Text(KuryeMerkezi.gunlukNotlar[index]),
                             trailing: IconButton(
                               icon: const Icon(Icons.delete, color: Colors.grey),
-                              onPressed: () {
+                              onPressed: () async {
                                 setState(() {
                                   KuryeMerkezi.gunlukNotlar.removeAt(index);
                                 });
+                                await KuryeMerkezi.verileriKaydet();
                               },
                             ),
                           ),
