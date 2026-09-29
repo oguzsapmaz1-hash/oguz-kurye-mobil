@@ -63,9 +63,9 @@ class KuryeMerkezi {
   static bool mesaiAktif = false;
   static int gecenSaniye = 0;
   
-  // Rota çizimi için aktif hedef konum
+  // Harita üzerinden seçilen veya tıklanan aktif rota hedefi
   static LatLng? aktifHedefKonum;
-  static String aktifHedefIsim = '';
+  static String aktifHedefIsim = 'Seçilen Konum';
 
   static int get toplamPaketSayisi => paketler.length;
   static int get teslimEdilenSayisi => paketler.where((p) => p.teslimEdildi).length;
@@ -509,7 +509,6 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
     });
   }
 
-  // İki nokta arasında uygulama içinde rota çizgisi oluşturmak için ara noktalar türetici
   List<LatLng> rotaNoktalariUret(LatLng baslangis, LatLng bitis) {
     List<LatLng> noktalar = [];
     int adimSayisi = 20;
@@ -517,7 +516,6 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
       double t = i / adimSayisi;
       double lat = baslangis.latitude + (bitis.latitude - baslangis.latitude) * t;
       double lng = baslangis.longitude + (bitis.longitude - baslangis.longitude) * t;
-      // Hafif doğal bir kavis vermek için minik bir sapma ekleyelim
       noktalar.add(LatLng(lat + (sin(t * pi) * 0.001), lng));
     }
     return noktalar;
@@ -552,6 +550,21 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
       );
     }).toList();
 
+    // Eğer harita üzerinde boş bir yere dokunulup hedef seçildiyse oraya mavi pin koyalım
+    if (KuryeMerkezi.aktifHedefKonum != null) {
+      bool paketteVarMi = KuryeMerkezi.paketler.any((p) => p.konum == KuryeMerkezi.aktifHedefKonum);
+      if (!paketteVarMi) {
+        paketPinleri.add(
+          Marker(
+            point: KuryeMerkezi.aktifHedefKonum!,
+            width: 50,
+            height: 50,
+            child: const Icon(Icons.location_pin, color: Colors.blue, size: 45),
+          ),
+        );
+      }
+    }
+
     paketPinleri.add(
       Marker(
         point: merkezKonum,
@@ -561,7 +574,6 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
       ),
     );
 
-    // Rota çizgileri (Eğer bir hedef seçildiyse)
     List<Polyline> rotalar = [];
     if (KuryeMerkezi.aktifHedefKonum != null) {
       rotalar.add(
@@ -575,7 +587,7 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(KuryeMerkezi.aktifHedefIsim.isEmpty ? 'Uşak Canlı Harita & Rota' : 'Hedef: ${KuryeMerkezi.aktifHedefIsim}'),
+        title: Text(KuryeMerkezi.aktifHedefIsim == 'Seçilen Konum' ? 'Haritaya Dokunarak Rota Çiz' : 'Hedef: ${KuryeMerkezi.aktifHedefIsim}'),
         actions: [
           if (KuryeMerkezi.aktifHedefKonum != null)
             IconButton(
@@ -584,7 +596,7 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
               onPressed: () {
                 setState(() {
                   KuryeMerkezi.aktifHedefKonum = null;
-                  KuryeMerkezi.aktifHedefIsim = '';
+                  KuryeMerkezi.aktifHedefIsim = 'Seçilen Konum';
                 });
               },
             ),
@@ -595,6 +607,16 @@ class _HaritaEkraniState extends State<HaritaEkrani> {
         options: MapOptions(
           initialCenter: merkezKonum,
           initialZoom: 14.0,
+          // Harita üzerinde herhangi bir yere dokunduğumuzda o konumu rota hedefi seçiyoruz!
+          onTap: (tapPosition, point) {
+            setState(() {
+              KuryeMerkezi.aktifHedefKonum = point;
+              KuryeMerkezi.aktifHedefIsim = 'Özel Konum (${point.latitude.toStringAsFixed(3)}, ${point.longitude.toStringAsFixed(3)})';
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Haritada bir noktaya dokundun! Rota çizildi.')),
+            );
+          },
         ),
         children: [
           TileLayer(
@@ -670,7 +692,7 @@ class _NotlarEkraniState extends State<NotlarEkrani> {
                             leading: const Icon(Icons.note, color: Colors.deepOrange),
                             title: Text(KuryeMerkezi.gunlukNotlar[index]),
                             trailing: IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.grey),
+                              icon: screenDeleteIcon(),
                               onPressed: () {
                                 setState(() {
                                   KuryeMerkezi.gunlukNotlar.removeAt(index);
@@ -687,4 +709,6 @@ class _NotlarEkraniState extends State<NotlarEkrani> {
       ),
     );
   }
+
+  Icon screenDeleteIcon() => const Icon(Icons.delete, color: Colors.grey);
 }
